@@ -1,62 +1,32 @@
-extends Control
+class_name Parser
+extends Node
 
 
-func _ready() -> void:
-	for file_path: String in dir_contents("/home/variable/Programing Projects/Fleur/XMLParser"):
-		var parsed_data = parse_fleur(file_path)
-		var file = FileAccess.open(file_path.get_basename() + ".txt", FileAccess.WRITE)
-		var json = JSON.stringify(parsed_data, "  |", false)
-		file.store_string(json)
-		file.close()
-	get_tree().quit()
-
-func dir_contents(path: String) -> PackedStringArray:
-	var out = PackedStringArray()
-	var dir = DirAccess.open(path)
-	if dir:
-		dir.list_dir_begin()
-		var file_name = dir.get_next()
-		while file_name != "":
-			if not dir.current_is_dir():
-				if file_name.ends_with(".xml"):
-					out.append(path.path_join(file_name))
-			file_name = dir.get_next()
-	return out
-
-
-func parse_fleur(file_path: String) -> Array:
+static func parse_xml(file_path: String) -> Array:
 	var parser = XMLParser.new()
 	parser.open(file_path)
-	var cache_array = []
+
+	var tree_array = []
 	while parser.read() != ERR_FILE_EOF:
-		if parser.get_node_type() == XMLParser.NODE_ELEMENT:
+		if parser.get_node_type() == XMLParser.NODE_ELEMENT:  # A new section is detected
 			var node_name = parser.get_node_name().capitalize()
 			var attributes_dict = {}
 			for idx in range(parser.get_attribute_count()):
-				attributes_dict[parser.get_attribute_name(idx).capitalize()] = parser.get_attribute_value(idx).strip_edges()
-			var info := {}
-			if not attributes_dict.is_empty():
-				info = attributes_dict
-			cache_array.append({node_name: info})
+				var value = parse_attribute(parser.get_attribute_value(idx))
+				attributes_dict[parser.get_attribute_name(idx).capitalize()] = value
+			tree_array.append({node_name: attributes_dict})
 
-		elif parser.get_node_type() == XMLParser.NODE_TEXT:
-			var text = (
-						parser
-						.get_node_data()
-						.strip_edges()
-						.replace("\n", "")
-					)
-			text = str(text.split(" ", false)).replace("[", "").replace("]", "").replace("\"", "")
-			if not text.is_empty():
-				var last_node_name = cache_array[-1].keys()[0]
-				cache_array[-1][last_node_name]["value"] = text.capitalize()
-				cache_array[-1][last_node_name]["value"] = str(text.replace(", ", " |----| ")).capitalize()
+		elif parser.get_node_type() == XMLParser.NODE_TEXT:  # Text (child of above node)
+			var value = parse_attribute(parser.get_node_data())
+			if not value.is_empty():
+				var last_node_name = tree_array[-1].keys()[0]
+				tree_array[-1][last_node_name]["value"] = value
 
-		elif parser.get_node_type() == XMLParser.NODE_ELEMENT_END:
+		elif parser.get_node_type() == XMLParser.NODE_ELEMENT_END:  # A section has ended (it may contain children)
 			var parent_name = parser.get_node_name().capitalize()
 			var children_dict := []
 			while true:
-				var child_dict = cache_array.pop_back()
+				var child_dict = tree_array.pop_back()
 				var keys = child_dict.keys()
 				if keys.size() > 0:  # Failsafe
 					var child_name = keys[0]
@@ -65,7 +35,58 @@ func parse_fleur(file_path: String) -> Array:
 					else:
 						children_dict.reverse()
 						child_dict[parent_name]["sub-properties"] = children_dict
-						cache_array.append(child_dict)
+						tree_array.append(child_dict)
 						break
+	return str_to_var(var_to_str(tree_array).replace("\"sub-properties\": [],", ""))
 
-	return str_to_var(var_to_str(cache_array).replace("\"sub-properties\": [],", ""))
+
+## This function just converts the values into a more suitable form
+static func parse_attribute(value: String):
+	value = value.strip_edges().replace("\n", "")
+	var value_array := Array(value.split(" ", false))
+
+	# convert numbers to a form where they can be recognized
+	var numbers = 0
+	for i in value_array.size():
+		var item: String = value_array[i]
+		if item.begins_with("."):
+			item = "0" + item
+		if str_to_var(item) != null:
+			if "*" in value:
+				var unit_split = item.split("*", false)
+				if unit_split.size() == 2:  # ignore all other sizes
+					value_array[i] = var_to_str(str_to_var(item)) + " " + unit_split[1]
+			else:
+				value_array[i] = str_to_var(item)
+		# try conversion to numbers where possible
+		if typeof(value_array[i]) == TYPE_FLOAT or typeof(value_array[i]) == TYPE_INT:
+			numbers += 1
+
+	var output  # Formatted values of the parameters
+	if numbers > 0 and  numbers == value_array.size():
+		match value_array.size():
+			1:
+				output = value_array[0]
+			2:
+				output = Vector2(value_array[0], value_array[1])
+			3:
+				output = Vector3(value_array[0], value_array[1], value_array[2])
+			4:
+				output = Vector4(value_array[0], value_array[1], value_array[2], value_array[3])
+			_:
+				output = value_array
+	else:
+		value = (
+					str(
+						value_array
+					).replace("[", "")
+					.replace("]", "")
+					.replace(", ", " |----| ")
+					.replace("\"", "")
+					.capitalize()
+				)
+		output = value
+
+	if typeof(output) != TYPE_STRING:
+		output = var_to_str(output)
+	return output
