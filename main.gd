@@ -1,6 +1,6 @@
 extends Control
 
-var files: PackedStringArray
+var files: PackedStringArray = ["/home/variable/Programing Projects/Godot/Godot 4.x Projects/xmlparser/out.xml"]
 var indent: String = "  |"
 
 class CLI:
@@ -67,16 +67,16 @@ func _ready() -> void:
 		)
 		for file_path: String in files:
 			print("Parsing: ", file_path)
-			var parsed_data = Parser.parse_xml(file_path)
+			var parsed_data: Array = Parser.parse_xml(file_path)
 			if parsed_data.size() > 0:
 				var file = FileAccess.open(file_path.get_basename() + ".txt", FileAccess.WRITE)
 				if FileAccess.get_open_error() != OK:
 					print("ERROR: ", error_string(FileAccess.get_open_error()))
 				var json: String
 				if parsed_data.size() == 1:  ## This is the option the code will follow most of the time
-					parsed_data = JSON.stringify(parsed_data[0], indent, false)
+					json = JSON.stringify(parsed_data[0], indent, false)
 				else:
-					parsed_data = JSON.stringify(parsed_data, indent, false)
+					json = JSON.stringify(parsed_data, indent, false)
 				file.store_string(json)
 				file.close()
 		print("\nJob Done!!!\n")
