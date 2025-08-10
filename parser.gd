@@ -2,46 +2,68 @@ class_name Parser
 extends Node
 
 
-static func parse_xml(file_path: String) -> Array:
+static func parse_xml(file_path: String) -> Dictionary:
+	var md_array = PackedStringArray()
 	var parser = XMLParser.new()
 	parser.open(file_path)
-
 	var tree_array = []
+	var text_added_last_node := false
+
 	while parser.read() != ERR_FILE_EOF:
 		if parser.get_node_type() == XMLParser.NODE_ELEMENT:  # A new section is detected
 			var node_name = parser.get_node_name().capitalize()
 			var attributes_dict = {}
+			md_array.append(node_name)  # new entry
 			for idx in range(parser.get_attribute_count()):
-				var value = parse_attribute(parser.get_attribute_value(idx))
-				attributes_dict[parser.get_attribute_name(idx).capitalize()] = value
+				var prop_name: String = parser.get_attribute_name(idx).capitalize()
+				var value: String = parse_attribute(parser.get_attribute_value(idx))
+				attributes_dict[prop_name] = value
+				md_array.append(prop_name + " = " + value )  # new value
 			tree_array.append({node_name: attributes_dict})
 
 		elif parser.get_node_type() == XMLParser.NODE_TEXT:  # Text (child of above node)
 			var value = parse_attribute(parser.get_node_data())
 			if not value.is_empty():
+				text_added_last_node = true
 				var last_node_name = tree_array[-1].keys()[0]
 				tree_array[-1][last_node_name]["value"] = value
+				md_array.append("value = " + value )  # new value
 
 		elif parser.get_node_type() == XMLParser.NODE_ELEMENT_END:  # A section has ended (it may contain children)
 			var parent_name = parser.get_node_name().capitalize()
-			var children_dict := []
-			while true:
-				var child_dict = tree_array.pop_back()
+			if text_added_last_node:
+				text_added_last_node = false
+				continue
+			var children_dict_array := []
+			var parent_pos = md_array.rfind(parent_name)
+			if tree_array[-1].keys()[0] == parent_name:  # Empty section
+				tree_array.remove_at(tree_array.size() - 1)
+				md_array.resize(md_array.size() - 1)
+				continue
+			while true and tree_array.size() > 0:
+				var child_dict: Dictionary = tree_array.pop_back()
 				var keys = child_dict.keys()
-				if keys.size() > 0:  # Failsafe
-					var child_name = keys[0]
-					if child_name != parent_name:
-						children_dict.append(child_dict)
-					else:
-						children_dict.reverse()
-						child_dict[parent_name]["sub-properties"] = children_dict
+				var child_name = keys[0]
+				if child_name != parent_name:
+					children_dict_array.append(child_dict)
+				else:
+					if not children_dict_array.is_empty():
+						children_dict_array.reverse()
+						child_dict[parent_name]["sub-properties"] = children_dict_array
 						tree_array.append(child_dict)
-						break
-	return str_to_var(var_to_str(tree_array).replace("\"sub-properties\": [],", ""))
+
+						# md indentation
+						md_array.insert(parent_pos + 1, "<indent>")
+						md_array.append("</indent>")
+					break
+	return {
+		"result": str_to_var(var_to_str(tree_array).replace("\"sub-properties\": [],", "")),
+		"md_array": md_array
+		}
 
 
 ## This function just converts the values into a more suitable form
-static func parse_attribute(value: String):
+static func parse_attribute(value: String) -> String:
 	value = value.strip_edges().replace("\n", "")
 	var value_array := Array(value.split(" ", false))
 
